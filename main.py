@@ -7,6 +7,8 @@ from pymongo import MongoClient
 from pymongo.collection import Collection
 from dotenv import load_dotenv
 
+from werkzeug.utils import secure_filename
+
 
 # Initialize Firebase Admin SDK with service account credentials
 cred = credentials.Certificate('./service-account.json')
@@ -18,6 +20,7 @@ CORS(app)
 
 websites_path = "/var/www/"
 zip_filename = 'zip-website'
+max_file_size = 10 * 1024 * 1024
 
 
 load_dotenv()
@@ -29,28 +32,30 @@ def publish_website():
     website_data = request.form
     id_token = website_data.get("user_token")
     website_id = website_data.get("website_id")
-    local_path = websites_path + website_id
-    zip_file = request.files.get(zip_filename)
-
 
     # Validate if user is the owner of the website and can perform this action
     valid_user_access: bool = validate_credentials(id_token, website_id)
 
     # Check everything is correct before publishing the website
-    if not website_id:
-        return 'The required data is not completed', 400
     if not valid_user_access:
-        return 'You are not allowed to do this', 400
-    if not zip_file:
-        return 'Website files not found', 400
-    if zip_file.filename == '':
-        return 'Website file zip incorrect', 400
+        return 'Unauthorized access', 401
     
 
-    create_or_update_website(local_path, zip_file)
+    local_path = websites_path + website_id
+    zip_file = request.files.get(zip_filename)
 
 
-    return 'Website published successfully', 200
+    # Check if all required data is provided
+    if not zip_file:
+        return 'Incomplete data provided', 400
+
+
+    # Validate zip file size and content type
+    if zip_file.content_length > max_file_size:
+        return 'File size exceeds limit', 400
+
+
+    return create_or_update_website(local_path, zip_file)
 
 
 
@@ -63,23 +68,32 @@ def create_or_update_website(local_path, zip_file):
     # Save the uploaded file to a temporary location
     file_path = 'temp.zip'
     zip_file.save(file_path)
+
+    """ os.chmod(local_path, 0o644) 
+    os.chmod(file_path, 0o644)  """
         
     with zipfile.ZipFile(file_path, 'r') as zip_ref:
         # Iterate throughout zip file to check if 
         # the zip contains only .css and .html files
 
         file_list = zip_ref.namelist()
-        
-        for file_name in file_list:
-            if not file_name.endswith('.css') and not file_name.endswith('.html'):
-                return 'The zip file should only contain .css and .html files.', 400
 
+        for file_name in file_list:
+
+            if file_name == "css/" or "js/": continue
+
+            if not file_name.endswith('.css') and not file_name.endswith('.html'):
+                print("file: ", file_name)
+                return 'The zip file should only contain .css and .html files.', 400
+        
         
         # Extract all the contents to a directory once files checked
         zip_ref.extractall(local_path)
     
     # Remove the temporary zip file
     os.remove(file_path)
+
+    return 'Website published successfully', 200
 
 
 
@@ -96,15 +110,17 @@ def validate_credentials(id_token: str, website_id) -> bool:
         db = client.get_database(os.getenv("DB_NAME"))
         websites_collection: Collection = db.get_collection("websites")
         
-        website = websites_collection.find({
-            "user_uid": uid,
-            "id": website_id
+        website = websites_collection.find_one({
+            "id": website_id,
+            "user_uid": uid
         })
+
 
         if not website:
            return False
 
         return True
+    
     except Exception as exception:
         return False
 
