@@ -9,6 +9,8 @@ from dotenv import load_dotenv
 
 from werkzeug.utils import secure_filename
 
+load_dotenv()
+
 
 app = Flask(__name__)
 
@@ -17,7 +19,7 @@ app = Flask(__name__)
 @app.route("/<path:path>")
 def serve_static_website(path):
     # Get the domain from the request's Host header
-    domain = request.headers.get("Host").split(":")[0]
+    domain = request.headers.get("X-Forwarded-Host").split(":")[0]
 
     # Were websites are saved
     base_folder = "/var/www/"
@@ -27,15 +29,16 @@ def serve_static_website(path):
     
     website_dir = base_folder + website_id
 
-
     if website_dir:
         # If no path is provided, serve index.html by default
         if not path:
             path = "home.html"
+        else:
+            if not path.endswith(".css"):
+                path += ".html"
 
-        print("path: ", path)
         # Serve the requested file from the corresponding directory
-        return send_from_directory(website_dir, path)
+        return send_from_directory(website_dir, path+".html")
 
     # If the domain is not found in the mapping, return a 404 error
     return "404 Not Found", 404
@@ -46,11 +49,9 @@ def get_website_id(domain: str):
     client = MongoClient(os.getenv("MONGODB_URI"))
     db = client.get_database(os.getenv("DB_NAME"))
     websites_collection: Collection = db.get_collection("websites")
-        
+    
     website = websites_collection.find_one({
-        "config.domains": {
-            "name":domain
-        },
+        "config.domains.name": domain,
     })
 
     id = website.get("id")

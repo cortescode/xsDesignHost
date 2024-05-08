@@ -7,13 +7,13 @@ from dotenv import load_dotenv
 
 from werkzeug.utils import secure_filename
 
-from .websiteCreation import create_or_update_website
+from websiteCreation import create_or_update_website
 
-from .validation import validate_credentials
+from validation import validate_credentials
 
 
 # Initialize Firebase Admin SDK with service account credentials
-cred = credentials.Certificate('./service-account.json')
+cred = credentials.Certificate('../../service-account.json')
 initialize_app(cred)
 
 app = Flask(__name__)
